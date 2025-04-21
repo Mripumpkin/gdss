@@ -1,3 +1,4 @@
+// p2p/p2p.go
 package p2p
 
 import (
@@ -6,24 +7,52 @@ import (
 	"sync"
 )
 
+// TCPPeer represents the remote node over a TCP established connection.
+type TCPPeer struct {
+	conn     net.Conn
+	outbound bool // true if we dialed, false if we accepted
+}
+
+// NewTCPPeer creates a new TCPPeer.
+func NewTCPPeer(conn net.Conn, outbound bool) *TCPPeer {
+	return &TCPPeer{
+		conn:     conn,
+		outbound: outbound,
+	}
+}
+
+// Conn returns the underlying connection.
+func (p *TCPPeer) Conn() net.Conn {
+	return p.conn
+}
+
+// IsOutbound returns whether the peer is outbound.
+func (p *TCPPeer) IsOutbound() bool {
+	return p.outbound
+}
+
+// TCPTransport manages TCP listening and connections.
 type TCPTransport struct {
-	listenAdderss string
+	listenAddress string
 	listener      net.Listener
+	handshaker    Handshaker
 
 	mu    sync.RWMutex
 	peers map[net.Addr]Peer
 }
 
+// NewTCPTransport creates a new TCPTransport.
 func NewTCPTransport(listenAddress string) *TCPTransport {
 	return &TCPTransport{
-		listenAdderss: listenAddress,
+		listenAddress: listenAddress,
+		peers:         make(map[net.Addr]Peer), // Initialize peers map
 	}
 }
 
+// ListenAndAccept starts listening for incoming connections.
 func (t *TCPTransport) ListenAndAccept() error {
 	var err error
-
-	t.listener, err = net.Listen("tcp", t.listenAdderss)
+	t.listener, err = net.Listen("tcp", t.listenAddress)
 	if err != nil {
 		return err
 	}
@@ -32,40 +61,25 @@ func (t *TCPTransport) ListenAndAccept() error {
 	return nil
 }
 
+// StartAcceptLoop accepts incoming connections in a loop.
 func (t *TCPTransport) StartAcceptLoop() {
 	for {
 		conn, err := t.listener.Accept()
 		if err != nil {
 			fmt.Printf("TCP accept error: %s\n", err)
+			continue
 		}
 		go t.handleConn(conn)
 	}
 }
 
+// handleConn processes a new incoming connection.
 func (t *TCPTransport) handleConn(conn net.Conn) {
-	fmt.Printf("new incoming connectiobn from %+v\n", conn)
-}
+	peer := NewTCPPeer(conn, false) // Inbound connection
 
-func (t *TCPTransport) Start() error {
-	listener, err := net.Listen("tcp", t.listenAdderss)
-	if err != nil {
-		return err
-	}
-	t.listener = listener
+	t.mu.Lock()
+	t.peers[conn.RemoteAddr()] = peer
+	t.mu.Unlock()
 
-	t.peers = make(map[net.Addr]Peer)
-
-	go func() {
-		for {
-			conn, err := t.listener.Accept()
-			if err != nil {
-				continue
-			}
-			t.mu.Lock()
-			t.peers[conn.RemoteAddr()] = nil // TODO: create a peer from the connection
-			t.mu.Unlock()
-		}
-	}()
-
-	return nil
+	fmt.Printf("New incoming connection from %+v\n", peer)
 }
