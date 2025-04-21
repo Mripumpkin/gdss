@@ -27,7 +27,12 @@ func main() {
 	}
 	log := log.NewLogger(conf)
 
-	tr := p2p.NewTCPTransport(":4344")
+	tcpOpts := p2p.TCPTransportOpts{
+		ListenAddress: ":4344",
+		HandshakeFunc: p2p.NOPHandshakeFunc,
+		Decoder: 	 &p2p.GOBDecoder{},
+	}
+	tr := p2p.NewTCPTransport(tcpOpts)
 	if err := tr.ListenAndAccept(); err != nil {
 		log.Error("failed to start TCP transport", "error", err)
 		return
