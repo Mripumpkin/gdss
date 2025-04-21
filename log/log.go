@@ -44,14 +44,14 @@ var once sync.Once
 var projectRoot string
 
 // init sets up defaultLogger and project root.
-func init() {
-	var err error
-	projectRoot, err = getProjectRoot()
-	if err != nil {
-		projectRoot, _ = os.Getwd()
-	}
-	defaultLogger = newLogrusLogger(config.Config())
-}
+// func init() {
+// 	var err error
+// 	projectRoot, err = getProjectRoot()
+// 	if err != nil {
+// 		projectRoot, _ = os.Getwd()
+// 	}
+// 	defaultLogger = newLogrusLogger(config.Config())
+// }
 
 func getProjectRoot() (string, error) {
 	dir, err := os.Getwd()

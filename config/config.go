@@ -67,13 +67,13 @@ func LoadConfigProvider() (Provider, error) {
 	return defaultConfig, nil
 }
 
-func init() {
-	var err error
-	defaultConfig, err = readViperConfig()
-	if err != nil {
-		panic(fmt.Errorf("fatal error loading config: %w", err))
-	}
-}
+// func init() {
+// 	var err error
+// 	defaultConfig, err = readViperConfig()
+// 	if err != nil {
+// 		panic(fmt.Errorf("fatal error loading config: %w", err))
+// 	}
+// }
 
 // readViperConfig initializes a viper instance with configuration from files and environment variables.
 func readViperConfig() (*viper.Viper, error) {
