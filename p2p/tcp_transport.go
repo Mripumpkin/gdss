@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"sync"
+
+	"github.com/jekki/gdss/log"
 )
 
 // TCPPeer represents the remote node over a TCP established connection.
@@ -21,6 +23,12 @@ func NewTCPPeer(conn net.Conn, outbound bool) *TCPPeer {
 	}
 }
 
+type TCPTransportOps struct {
+	ListenAddress string
+	HandshakeFunc HandshakeFunc
+	Decoder       Decoder
+}
+
 // Conn returns the underlying connection.
 func (p *TCPPeer) Conn() net.Conn {
 	return p.conn
@@ -35,7 +43,8 @@ func (p *TCPPeer) IsOutbound() bool {
 type TCPTransport struct {
 	listenAddress string
 	listener      net.Listener
-	handshaker    Handshaker
+	shakeHands    HandshakeFunc
+	decoder       Decoder
 
 	mu    sync.RWMutex
 	peers map[net.Addr]Peer
@@ -45,7 +54,8 @@ type TCPTransport struct {
 func NewTCPTransport(listenAddress string) *TCPTransport {
 	return &TCPTransport{
 		listenAddress: listenAddress,
-		peers:         make(map[net.Addr]Peer), // Initialize peers map
+		shakeHands:    NOPHandshakeFunc,
+		// peers:         make(map[net.Addr]Peer), // Initialize peers map
 	}
 }
 
@@ -54,6 +64,7 @@ func (t *TCPTransport) ListenAndAccept() error {
 	var err error
 	t.listener, err = net.Listen("tcp", t.listenAddress)
 	if err != nil {
+		fmt.Printf("TCP listen error: %s\n", err)
 		return err
 	}
 
@@ -73,13 +84,24 @@ func (t *TCPTransport) StartAcceptLoop() {
 	}
 }
 
+type Temp struct{}
+
 // handleConn processes a new incoming connection.
 func (t *TCPTransport) handleConn(conn net.Conn) {
 	peer := NewTCPPeer(conn, false) // Inbound connection
 
-	t.mu.Lock()
-	t.peers[conn.RemoteAddr()] = peer
-	t.mu.Unlock()
+	if err := t.shakeHands(peer); err != nil {
+		log.Errorf("TCP handshake error: %s\n", err)
+		conn.Close()
+		return
+	}
 
-	fmt.Printf("New incoming connection from %+v\n", peer)
+	msg := &Temp{}
+	for {
+		if err := t.decoder.Decode(conn, msg); err != nil {
+			fmt.Printf("TCP error: %s\n", err)
+			continue
+		}
+	}
+
 }
