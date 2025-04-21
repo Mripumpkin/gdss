@@ -1,0 +1,9 @@
+[app]
+run_level = "production"
+json_logs = true
+loglevel = "info"
+log_file = "/var/log/app.log"
+log_max_size_mb = 100
+log_max_backups = 3
+log_max_age_days = 28
+log_compress = true
