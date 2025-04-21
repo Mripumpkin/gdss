@@ -77,10 +77,15 @@ build-linux:
 build-windows:
 	GOOS=windows GOARCH=amd64 go build -ldflags "-X main.Version=$(VERSION)" -o $(BIN_DIR)/$(BINARY_NAME).exe .
 
-clean: docker-rm
+clean: 
 	@echo "Cleaning build artifacts..."
 	@go clean
 	@rm -rf $(BIN_DIR) || true
+
+rm: clean
+	@echo "Removing Docker image $(APP):$(VERSION)..."
+	@docker rmi $(APP):$(VERSION) || true
+	@docker rmi $(APP):latest || true
 
 help:
 	@echo "Usage: make [target]"
