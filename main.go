@@ -37,6 +37,14 @@ func main() {
 		Decoder:       &p2p.DefaultDecoder{},
 	}
 	tr := p2p.NewTCPTransport(tcpOpts)
+
+	go func() {
+		for {
+			msg := <-tr.Consume()
+			log.Infof("%+v/n", msg)
+		}
+	}()
+
 	if err := tr.ListenAndAccept(); err != nil {
 		log.Error("failed to start TCP transport", "error", err)
 		return

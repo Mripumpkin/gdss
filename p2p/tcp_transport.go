@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/jekki/gdss/log"
+	"google.golang.org/appengine/channel"
 )
 
 // TCPPeer represents the remote node over a TCP established connection.
@@ -39,10 +40,16 @@ func (p *TCPPeer) IsOutbound() bool {
 	return p.outbound
 }
 
+// close implements the Peers interface.
+func (p *TCPPeer) Close() error {
+	return p.conn.Close()
+}
+
 // TCPTransport manages TCP listening and connections.
 type TCPTransport struct {
 	TCPTransportOpts
 	listener net.Listener
+	rpcch    chan RPC
 
 	mu    sync.RWMutex
 	peers map[net.Addr]Peer
@@ -52,8 +59,15 @@ type TCPTransport struct {
 func NewTCPTransport(opts TCPTransportOpts) *TCPTransport {
 	return &TCPTransport{
 		TCPTransportOpts: opts,
+		rpcch:            make(chan RPC), // Buffered channel for RPCs
 		// peers:         make(map[net.Addr]Peer), // Initialize peers map
 	}
+}
+
+// consume implement the Transport interface, which will return read-only channel
+// for reading the incoming messages received from another peer in the network.
+func (t *TCPTransport) Consume() <-chan RPC {
+	return t.rpcch
 }
 
 // ListenAndAccept starts listening for incoming connections.
@@ -91,7 +105,7 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 		return
 	}
 
-	rpc := &RPC{}
+	rpc := RPC{}
 	// buf := make([]byte, 1024)
 	for {
 		//n, err := conn.Read(buf)
@@ -99,11 +113,12 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 		//	fmt.Printf("TCP read error: %s\n", err)
 		//	continue
 		//}
-		if err := t.Decoder.Decode(conn, rpc); err != nil {
+		if err := t.Decoder.Decode(conn, &rpc); err != nil {
 			fmt.Printf("TCP error: %s\n", err)
 			continue
 		}
 		rpc.From = conn.RemoteAddr()
+		t.rpcch <- rpc
 		fmt.Printf("Received message: %s:%s", rpc.From, rpc.Payload)
 	}
 }
