@@ -27,10 +27,14 @@ func main() {
 	}
 	log := log.NewLogger(conf)
 
+	host := conf.GetString("server.host")
+	port := conf.GetInt("server.port")
+	listenAddr := fmt.Sprintf("%s:%d", host, port)
+
 	tcpOpts := p2p.TCPTransportOpts{
-		ListenAddress: ":4344",
+		ListenAddress: listenAddr,
 		HandshakeFunc: p2p.NOPHandshakeFunc,
-		Decoder: 	 &p2p.GOBDecoder{},
+		Decoder:       &p2p.DefaultDecoder{},
 	}
 	tr := p2p.NewTCPTransport(tcpOpts)
 	if err := tr.ListenAndAccept(); err != nil {
