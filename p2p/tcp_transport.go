@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/jekki/gdss/log"
-	"google.golang.org/appengine/channel"
 )
 
 // TCPPeer represents the remote node over a TCP established connection.
