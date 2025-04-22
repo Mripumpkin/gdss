@@ -23,12 +23,6 @@ func NewTCPPeer(conn net.Conn, outbound bool) *TCPPeer {
 	}
 }
 
-type TCPTransportOpts struct {
-	ListenAddress string
-	HandshakeFunc HandshakeFunc
-	Decoder       Decoder
-}
-
 // Conn returns the underlying connection.
 func (p *TCPPeer) Conn() net.Conn {
 	return p.conn
@@ -42,6 +36,12 @@ func (p *TCPPeer) IsOutbound() bool {
 // close implements the Peers interface.
 func (p *TCPPeer) Close() error {
 	return p.conn.Close()
+}
+
+type TCPTransportOpts struct {
+	ListenAddress string
+	HandshakeFunc HandshakeFunc
+	Decoder       Decoder
 }
 
 // TCPTransport manages TCP listening and connections.
@@ -118,6 +118,5 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 		}
 		rpc.From = conn.RemoteAddr()
 		t.rpcch <- rpc
-		fmt.Printf("Received message: %s:%s", rpc.From, rpc.Payload)
 	}
 }

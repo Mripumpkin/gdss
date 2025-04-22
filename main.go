@@ -41,7 +41,7 @@ func main() {
 	go func() {
 		for {
 			msg := <-tr.Consume()
-			log.Infof("%+v/n", msg)
+			fmt.Printf("Received message: %s:%s", msg.From, msg.Payload)
 		}
 	}()
 
