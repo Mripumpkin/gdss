@@ -41,8 +41,8 @@ func (p *TCPPeer) IsOutbound() bool {
 
 // TCPTransport manages TCP listening and connections.
 type TCPTransport struct {
-	TCPTransportOpts 
-	listener      net.Listener
+	TCPTransportOpts
+	listener net.Listener
 
 	mu    sync.RWMutex
 	peers map[net.Addr]Peer
@@ -81,8 +81,6 @@ func (t *TCPTransport) StartAcceptLoop() {
 	}
 }
 
-type Temp struct{}
-
 // handleConn processes a new incoming connection.
 func (t *TCPTransport) handleConn(conn net.Conn) {
 	peer := NewTCPPeer(conn, false) // Inbound connection
@@ -93,12 +91,19 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 		return
 	}
 
-	msg := &Temp{}
+	msg := &Message{}
+	// buf := make([]byte, 1024)
 	for {
+		//n, err := conn.Read(buf)
+		//if err != nil {
+		//	fmt.Printf("TCP read error: %s\n", err)
+		//	continue
+		//}
 		if err := t.Decoder.Decode(conn, msg); err != nil {
 			fmt.Printf("TCP error: %s\n", err)
 			continue
 		}
+		msg.From = conn.RemoteAddr()
+		fmt.Printf("Received message: %s:%s", msg.From, msg.Payload)
 	}
-
 }
