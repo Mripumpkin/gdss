@@ -43,34 +43,6 @@ var once sync.Once
 // projectRoot holds the project root directory path (containing go.mod).
 var projectRoot string
 
-// init sets up defaultLogger and project root.
-// func init() {
-// 	var err error
-// 	projectRoot, err = getProjectRoot()
-// 	if err != nil {
-// 		projectRoot, _ = os.Getwd()
-// 	}
-// 	defaultLogger = newLogrusLogger(config.Config())
-// }
-
-func getProjectRoot() (string, error) {
-	dir, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", fmt.Errorf("go.mod not found")
-		}
-		dir = parent
-	}
-}
-
 // NewLogger creates a new logrus logger with the given configuration.
 func NewLogger(cfg config.Provider) Logger {
 	once.Do(func() {

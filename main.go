@@ -10,6 +10,11 @@ import (
 	"github.com/jekki/gdss/pkg"
 )
 
+func OnPeer(peer p2p.Peer) error {
+	peer.Close()
+	return nil
+}
+
 func main() {
 
 	defer func() {
@@ -35,6 +40,8 @@ func main() {
 		ListenAddress: listenAddr,
 		HandshakeFunc: p2p.NOPHandshakeFunc,
 		Decoder:       &p2p.DefaultDecoder{},
+		Logger:        log,
+		OnPeer:        OnPeer,
 	}
 	tr := p2p.NewTCPTransport(tcpOpts)
 

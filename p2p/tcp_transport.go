@@ -2,9 +2,7 @@
 package p2p
 
 import (
-	"fmt"
 	"net"
-	"sync"
 
 	"github.com/jekki/gdss/log"
 )
@@ -42,6 +40,8 @@ type TCPTransportOpts struct {
 	ListenAddress string
 	HandshakeFunc HandshakeFunc
 	Decoder       Decoder
+	Logger        log.Logger
+	OnPeer        func(Peer) error
 }
 
 // TCPTransport manages TCP listening and connections.
@@ -50,8 +50,8 @@ type TCPTransport struct {
 	listener net.Listener
 	rpcch    chan RPC
 
-	mu    sync.RWMutex
-	peers map[net.Addr]Peer
+	// mu    sync.RWMutex
+	// peers map[net.Addr]Peer
 }
 
 // NewTCPTransport creates a new TCPTransport.
@@ -74,7 +74,7 @@ func (t *TCPTransport) ListenAndAccept() error {
 	var err error
 	t.listener, err = net.Listen("tcp", t.ListenAddress)
 	if err != nil {
-		fmt.Printf("TCP listen error: %s\n", err)
+		t.Logger.Errorf("TCP listen error: %s\n", err)
 		return err
 	}
 
@@ -87,7 +87,7 @@ func (t *TCPTransport) StartAcceptLoop() {
 	for {
 		conn, err := t.listener.Accept()
 		if err != nil {
-			fmt.Printf("TCP accept error: %s\n", err)
+			t.Logger.Errorf("TCP accept error: %s\n", err)
 			continue
 		}
 		go t.handleConn(conn)
@@ -96,25 +96,30 @@ func (t *TCPTransport) StartAcceptLoop() {
 
 // handleConn processes a new incoming connection.
 func (t *TCPTransport) handleConn(conn net.Conn) {
-	peer := NewTCPPeer(conn, false) // Inbound connection
+	var err error
 
-	if err := t.HandshakeFunc(peer); err != nil {
-		log.Errorf("TCP handshake error: %s\n", err)
+	defer func() {
+		t.Logger.Errorf("dropping peer connection: %s", err)
 		conn.Close()
+	}()
+
+	peer := NewTCPPeer(conn, false)
+
+	if err = t.HandshakeFunc(peer); err != nil {
+		t.Logger.Errorf("TCP handshake error: %s\n", err)
 		return
 	}
 
+	if t.OnPeer != nil {
+		if err = t.OnPeer(peer); err != nil {
+			return
+		}
+	}
+
 	rpc := RPC{}
-	// buf := make([]byte, 1024)
 	for {
-		//n, err := conn.Read(buf)
-		//if err != nil {
-		//	fmt.Printf("TCP read error: %s\n", err)
-		//	continue
-		//}
-		if err := t.Decoder.Decode(conn, &rpc); err != nil {
-			fmt.Printf("TCP error: %s\n", err)
-			continue
+		if err = t.Decoder.Decode(conn, &rpc); err != nil {
+			return
 		}
 		rpc.From = conn.RemoteAddr()
 		t.rpcch <- rpc
