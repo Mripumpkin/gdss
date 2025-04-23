@@ -2,3 +2,4 @@ gdss
 *.back
 *.backup
 core.[0-9]*
+*store_dir*
