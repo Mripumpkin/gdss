@@ -1,5 +1,5 @@
 [server]
-host = "127.0.0.1"
+host = "0.0.0.0"
 port = 7799
 
 [app]
@@ -11,3 +11,6 @@ log_max_size_mb = 100
 log_max_backups = 3
 log_max_age_days = 28
 log_compress = true
+
+[node]
+tcp = "tcp"

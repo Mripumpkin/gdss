@@ -1,16 +1,17 @@
-// p2p/p2p.go
 package p2p
 
 import (
+	"fmt"
 	"net"
+	"time"
 
 	"github.com/jekki/gdss/log"
 )
 
-// TCPPeer represents the remote node over a TCP established connection.
+// TCPPeer represents a remote node over a TCP connection.
 type TCPPeer struct {
 	conn     net.Conn
-	outbound bool // true if we dialed, false if we accepted
+	outbound bool
 }
 
 // NewTCPPeer creates a new TCPPeer.
@@ -31,16 +32,17 @@ func (p *TCPPeer) IsOutbound() bool {
 	return p.outbound
 }
 
-// close implements the Peers interface.
+// Close closes the connection.
 func (p *TCPPeer) Close() error {
 	return p.conn.Close()
 }
 
+// TCPTransportOpts holds configuration options for TCPTransport.
 type TCPTransportOpts struct {
 	ListenAddress string
 	HandshakeFunc HandshakeFunc
 	Decoder       Decoder
-	Logger        log.Logger
+	NodeID        string // Unique identifier for the node
 	OnPeer        func(Peer) error
 }
 
@@ -49,22 +51,17 @@ type TCPTransport struct {
 	TCPTransportOpts
 	listener net.Listener
 	rpcch    chan RPC
-
-	// mu    sync.RWMutex
-	// peers map[net.Addr]Peer
 }
 
 // NewTCPTransport creates a new TCPTransport.
 func NewTCPTransport(opts TCPTransportOpts) *TCPTransport {
 	return &TCPTransport{
 		TCPTransportOpts: opts,
-		rpcch:            make(chan RPC), // Buffered channel for RPCs
-		// peers:         make(map[net.Addr]Peer), // Initialize peers map
+		rpcch:            make(chan RPC),
 	}
 }
 
-// consume implement the Transport interface, which will return read-only channel
-// for reading the incoming messages received from another peer in the network.
+// Consume returns a read-only channel for incoming RPC messages.
 func (t *TCPTransport) Consume() <-chan RPC {
 	return t.rpcch
 }
@@ -74,10 +71,17 @@ func (t *TCPTransport) ListenAndAccept() error {
 	var err error
 	t.listener, err = net.Listen("tcp", t.ListenAddress)
 	if err != nil {
-		t.Logger.Errorf("TCP listen error: %s\n", err)
+		log.WithFields(log.Fields{
+			"node_id": t.NodeID,
+			"address": t.ListenAddress,
+		}).Errorf("TCP listen error: %v", err)
 		return err
 	}
 
+	log.WithFields(log.Fields{
+		"node_id": t.NodeID,
+		"address": t.ListenAddress,
+	}).Infof("Listening for connections")
 	go t.StartAcceptLoop()
 	return nil
 }
@@ -87,31 +91,52 @@ func (t *TCPTransport) StartAcceptLoop() {
 	for {
 		conn, err := t.listener.Accept()
 		if err != nil {
-			t.Logger.Errorf("TCP accept error: %s\n", err)
+			log.WithFields(log.Fields{
+				"node_id": t.NodeID,
+				"address": t.ListenAddress,
+			}).Errorf("TCP accept error: %v", err)
 			continue
 		}
 		go t.handleConn(conn)
 	}
 }
 
+// withPeerContext creates a logger with peer-specific fields.
+func withPeerContext(nodeID, peerAddr, localAddr string, traceID ...string) log.Logger {
+	fields := log.Fields{
+		"node_id":    nodeID,
+		"peer":       peerAddr,
+		"local_addr": localAddr,
+	}
+	if len(traceID) > 0 && traceID[0] != "" {
+		fields["trace_id"] = traceID[0]
+	}
+	return log.WithFields(fields)
+}
+
 // handleConn processes a new incoming connection.
 func (t *TCPTransport) handleConn(conn net.Conn) {
 	var err error
+	peerAddr := conn.RemoteAddr().String()
+	traceID := generateTraceID()
+	logger := withPeerContext(t.NodeID, peerAddr, t.ListenAddress, traceID)
 
 	defer func() {
-		t.Logger.Errorf("dropping peer connection: %s", err)
-		conn.Close()
+		if err != nil {
+			conn.Close()
+		}
 	}()
 
 	peer := NewTCPPeer(conn, false)
 
 	if err = t.HandshakeFunc(peer); err != nil {
-		t.Logger.Errorf("TCP handshake error: %s\n", err)
+		logger.Errorf("TCP handshake error: %v", err)
 		return
 	}
 
 	if t.OnPeer != nil {
 		if err = t.OnPeer(peer); err != nil {
+			logger.Errorf("OnPeer callback error: %v", err)
 			return
 		}
 	}
@@ -119,9 +144,15 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 	rpc := RPC{}
 	for {
 		if err = t.Decoder.Decode(conn, &rpc); err != nil {
+			logger.Errorf("Decode error: %v", err)
 			return
 		}
 		rpc.From = conn.RemoteAddr()
 		t.rpcch <- rpc
 	}
+}
+
+// generateTraceID generates a unique trace ID for distributed tracing (placeholder).
+func generateTraceID() string {
+	return "trace-" + fmt.Sprintf("%d", time.Now().UnixNano())
 }

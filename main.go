@@ -16,10 +16,12 @@ func OnPeer(peer p2p.Peer) error {
 }
 
 func main() {
-
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Printf("[panic] err: %v\nstack: %s\n", err, pkg.GetCurrentGoroutineStack())
+			log.WithFields(log.Fields{
+				"error": err,
+				"stack": pkg.GetCurrentGoroutineStack(),
+			}).Fatalf("Panic occurred")
 		}
 	}()
 
@@ -30,31 +32,37 @@ func main() {
 		fmt.Println("config init failed!")
 		return
 	}
-	log := log.NewLogger(conf)
+
+	log.NewLogger(conf)
+	log.Infof("Starting gdss node")
 
 	host := conf.GetString("server.host")
 	port := conf.GetInt("server.port")
 	listenAddr := fmt.Sprintf("%s:%d", host, port)
-
 	tcpOpts := p2p.TCPTransportOpts{
 		ListenAddress: listenAddr,
 		HandshakeFunc: p2p.NOPHandshakeFunc,
 		Decoder:       &p2p.DefaultDecoder{},
-		Logger:        log,
+		NodeID:        conf.GetString("node.tcp"),
 		OnPeer:        OnPeer,
 	}
 	tr := p2p.NewTCPTransport(tcpOpts)
 
 	go func() {
-		for {
-			msg := <-tr.Consume()
-			fmt.Printf("Received message: %s:%s", msg.From, msg.Payload)
+		for msg := range tr.Consume() {
+			log.WithFields(log.Fields{
+				"from":    msg.From,
+				"payload": string(msg.Payload),
+			}).Infof("Received message")
+			fmt.Printf("Received message: %s:%s\n", msg.From, msg.Payload)
 		}
 	}()
 
 	if err := tr.ListenAndAccept(); err != nil {
-		log.Error("failed to start TCP transport", "error", err)
-		return
+		log.WithFields(log.Fields{
+			"address": listenAddr,
+		}).Fatalf("Failed to start TCP transport: %v", err)
 	}
+
 	select {}
 }
