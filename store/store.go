@@ -1,10 +1,9 @@
 package store
 
 import (
-	"bytes"
-	"crypto/md5"
 	"crypto/sha1"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -13,7 +12,7 @@ import (
 )
 
 // CASPathTransformFunc generates a content-addressable storage path from a key.
-func CASPathTransformFunc(key string) string {
+func CASPathTransformFunc(key string) PathKey {
 	hash := sha1.Sum([]byte(key))
 	hashStr := hex.EncodeToString(hash[:])
 
@@ -25,11 +24,23 @@ func CASPathTransformFunc(key string) string {
 		from, to := i*blockszie, (i*blockszie)+blockszie
 		paths[i] = hashStr[from:to]
 	}
-	return strings.Join(paths, "/")
+	return PathKey{
+		PathName: strings.Join(paths, "/"),
+		Filename: hashStr,
+	}
 }
 
 // PathTransformFunc defines a function to transform a key into a storage path.
-type PathTransformFunc func(string) string
+type PathTransformFunc func(string) PathKey
+
+type PathKey struct {
+	PathName string
+	Filename string
+}
+
+func (p PathKey) FullPath() string {
+	return fmt.Sprintf("%s/%s", p.PathName, p.Filename)
+}
 
 // StoreOpts holds configuration options for the Store.
 type StoreOpts struct {
@@ -49,9 +60,6 @@ var DefaultPathTransformFunc = func(key string) string {
 
 // NewStore creates a new Store with the given options.
 func NewStore(opts StoreOpts) *Store {
-	if opts.PathTransformFunc == nil {
-		opts.PathTransformFunc = DefaultPathTransformFunc
-	}
 	return &Store{
 		StoreOpts: opts,
 	}
@@ -66,42 +74,41 @@ func withStoreContext(nodeID, key, path string) log.Logger {
 	})
 }
 
-// writeStream writes data from a reader to a file, using the key to determine the path.
-func (s *Store) writeStream(key string, r io.Reader) error {
-	pathName := s.PathTransformFunc(key)
-	logger := withStoreContext(s.NodeID, key, pathName)
+func (s *Store) Read(key string) (io.ReadCloser, error) {
+	f, err := s.readStream(key)
+	if err != nil {
+		return nil, err
+	}
 
-	if err := os.MkdirAll(pathName, os.ModePerm); err != nil {
+	return f.(io.ReadCloser), nil
+}
+
+func (s *Store) readStream(key string) (io.Reader, error) {
+	pathKey := s.PathTransformFunc(key)
+
+	return os.Open(pathKey.FullPath())
+}
+
+func (s *Store) writeStream(key string, r io.Reader) error {
+	pathKey := s.PathTransformFunc(key)
+	logger := withStoreContext(s.NodeID, key, pathKey.FullPath())
+
+	if err := os.MkdirAll(pathKey.PathName, 0755); err != nil {
 		logger.Errorf("Failed to create directory: %v", err)
 		return err
 	}
 
-	// Buffer data to compute MD5 hash
-	buf := new(bytes.Buffer)
-	if _, err := io.Copy(buf, r); err != nil {
-		logger.Errorf("Failed to buffer data: %v", err)
-		return err
-	}
-
-	// Compute filename using MD5 hash
-	filenameBytes := md5.Sum(buf.Bytes())
-	filename := hex.EncodeToString(filenameBytes[:])
-	pathAndFilename := pathName + "/" + filename
-	logger = withStoreContext(s.NodeID, key, pathAndFilename)
-
-	// Create file
-	f, err := os.Create(pathAndFilename)
+	f, err := os.Create(pathKey.FullPath())
 	if err != nil {
 		logger.Errorf("Failed to create file: %v", err)
 		return err
 	}
 	defer f.Close()
 
-	// Write buffered data to file
-	reader := bytes.NewReader(buf.Bytes())
-	n, err := io.Copy(f, reader)
+	n, err := io.Copy(f, r)
 	if err != nil {
 		logger.Errorf("Failed to write to file: %v", err)
+		_ = os.Remove(pathKey.FullPath())
 		return err
 	}
 
