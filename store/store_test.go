@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"testing"
 
@@ -40,32 +41,51 @@ func TestStoreDeleteKey(t *testing.T) {
 }
 
 func TestStore(t *testing.T) {
+	s := newStore()
+	defer teardown(t, s)
 
+	for i := 0; i < 5000; i++ {
+		key := fmt.Sprintf("food_%d", i)
+
+		data := []byte("test data")
+		if err := s.writeStream(key, bytes.NewBuffer(data)); err != nil {
+			t.Fatalf("failed to write stream: %v", err)
+		}
+		r, err := s.Read(key)
+		if err != nil {
+			t.Fatalf("failed to read: %v", err)
+		}
+
+		b, err := io.ReadAll(r)
+		if err != nil {
+			t.Fatalf("failed to read all: %v", err)
+		}
+		r.Close()
+
+		assert.True(t, s.Has(key), "Expected key to exist")
+
+		if !bytes.Equal(b, data) {
+			t.Errorf("expected data %q, got %q", data, b)
+		}
+
+		if err := s.Delete(key); err != nil {
+			t.Error(err)
+		}
+		if ok := s.Has(key); ok {
+			t.Errorf("expected to not have key %s", key)
+		}
+	}
+}
+
+func newStore() *Store {
 	opts := StoreOpts{
 		PathTransformFunc: CASPathTransformFunc,
 	}
-	s := NewStore(opts)
-	key := "store_dir"
-	data := []byte("test data")
-	if err := s.writeStream(key, bytes.NewBuffer(data)); err != nil {
-		t.Fatalf("failed to write stream: %v", err)
-	}
-	r, err := s.Read(key)
-	if err != nil {
-		t.Fatalf("failed to read: %v", err)
-	}
-	defer r.Close()
+	return NewStore(opts)
+}
 
-	b, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatalf("failed to read all: %v", err)
+func teardown(t *testing.T, s *Store) {
+	if err := s.Clear(); err != nil {
+		t.Error(err)
 	}
-
-	assert.True(t, s.Has(key), "Expected key to exist")
-
-	if !bytes.Equal(b, data) {
-		t.Errorf("expected data %q, got %q", data, b)
-	}
-
-	s.Delete(key)
 }

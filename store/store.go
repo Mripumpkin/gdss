@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/jekki/gdss/log"
@@ -90,12 +90,22 @@ func NewStore(opts StoreOpts) *Store {
 	}
 }
 
+func (s *Store) Clear() error {
+	return os.RemoveAll(s.Root)
+}
+
 func (s *Store) Has(key string) bool {
 	pathKey := s.PathTransformFunc(key)
 
-	hasPathWithRoot := fmt.Sprintf("%s:%s", s.Root, pathKey.FullPath())
-	_, err := os.Stat(hasPathWithRoot)
-	return err != fs.ErrNotExist
+	fullPathWithRoot := filepath.Join(s.Root, pathKey.FullPath())
+	_, err := os.Stat(fullPathWithRoot)
+	if err == nil {
+		return true
+	}
+	if os.IsNotExist(err) {
+		return false
+	}
+	return false
 }
 
 func (s *Store) Delete(key string) error {
@@ -106,9 +116,9 @@ func (s *Store) Delete(key string) error {
 		logger.Infof("deleted [%s] form disk", pathKey.Filename)
 	}()
 
-	firstPathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FirstPathName())
+	firstPathNfullPathWithRoot := filepath.Join(s.Root, pathKey.FullPath())
 
-	return os.RemoveAll(firstPathNameWithRoot)
+	return os.RemoveAll(firstPathNfullPathWithRoot)
 }
 
 // withStoreContext creates a logger with store-specific fields.
