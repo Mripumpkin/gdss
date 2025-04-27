@@ -5,10 +5,15 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"strings"
 
 	"github.com/jekki/gdss/log"
+)
+
+const (
+	defaultRootFolderName = "gdss"
 )
 
 // CASPathTransformFunc generates a content-addressable storage path from a key.
@@ -38,12 +43,22 @@ type PathKey struct {
 	Filename string
 }
 
+func (p PathKey) FirstPathName() string {
+	paths := strings.Split(p.PathName, "/")
+	if len(paths) == 0 {
+		return ""
+	}
+	return paths[0]
+}
+
 func (p PathKey) FullPath() string {
 	return fmt.Sprintf("%s/%s", p.PathName, p.Filename)
 }
 
 // StoreOpts holds configuration options for the Store.
 type StoreOpts struct {
+	// Root is the folder name of the root, containing all the folders/files of the system.
+	Root              string
 	PathTransformFunc PathTransformFunc
 	NodeID            string // Unique identifier for the node
 }
@@ -54,15 +69,46 @@ type Store struct {
 }
 
 // DefaultPathTransformFunc returns the key as the storage path.
-var DefaultPathTransformFunc = func(key string) string {
-	return key
+var DefaultPathTransformFunc = func(key string) PathKey {
+	return PathKey{
+		PathName: key,
+		Filename: key,
+	}
 }
 
 // NewStore creates a new Store with the given options.
 func NewStore(opts StoreOpts) *Store {
+	if opts.PathTransformFunc == nil {
+		opts.PathTransformFunc = DefaultPathTransformFunc
+	}
+
+	if len(opts.Root) == 0 {
+		opts.Root = defaultRootFolderName
+	}
 	return &Store{
 		StoreOpts: opts,
 	}
+}
+
+func (s *Store) Has(key string) bool {
+	pathKey := s.PathTransformFunc(key)
+
+	hasPathWithRoot := fmt.Sprintf("%s:%s", s.Root, pathKey.FullPath())
+	_, err := os.Stat(hasPathWithRoot)
+	return err != fs.ErrNotExist
+}
+
+func (s *Store) Delete(key string) error {
+	pathKey := s.PathTransformFunc(key)
+
+	defer func() {
+		logger := withStoreContext(s.NodeID, key, pathKey.FullPath())
+		logger.Infof("deleted [%s] form disk", pathKey.Filename)
+	}()
+
+	firstPathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FirstPathName())
+
+	return os.RemoveAll(firstPathNameWithRoot)
 }
 
 // withStoreContext creates a logger with store-specific fields.
@@ -85,20 +131,23 @@ func (s *Store) Read(key string) (io.ReadCloser, error) {
 
 func (s *Store) readStream(key string) (io.Reader, error) {
 	pathKey := s.PathTransformFunc(key)
-
-	return os.Open(pathKey.FullPath())
+	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
+	return os.Open(fullPathWithRoot)
 }
 
 func (s *Store) writeStream(key string, r io.Reader) error {
 	pathKey := s.PathTransformFunc(key)
+	pathKeyWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.PathName)
 	logger := withStoreContext(s.NodeID, key, pathKey.FullPath())
 
-	if err := os.MkdirAll(pathKey.PathName, 0755); err != nil {
+	if err := os.MkdirAll(pathKeyWithRoot, 0755); err != nil {
 		logger.Errorf("Failed to create directory: %v", err)
 		return err
 	}
 
-	f, err := os.Create(pathKey.FullPath())
+	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
+
+	f, err := os.Create(fullPathWithRoot)
 	if err != nil {
 		logger.Errorf("Failed to create file: %v", err)
 		return err

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"io"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestPathTransformFunc(t *testing.T) {
@@ -17,6 +19,23 @@ func TestPathTransformFunc(t *testing.T) {
 	}
 	if pathKey.Filename != expectOriginalKey {
 		t.Errorf("filename: %s,%s", pathKey.Filename, expectOriginalKey)
+	}
+}
+
+func TestStoreDeleteKey(t *testing.T) {
+	opts := StoreOpts{
+		PathTransformFunc: CASPathTransformFunc,
+	}
+	s := NewStore(opts)
+
+	key := "store_dir"
+	data := []byte("test data")
+	if err := s.writeStream(key, bytes.NewBuffer(data)); err != nil {
+		t.Fatalf("failed to write stream: %v", err)
+	}
+
+	if err := s.Delete(key); err != nil {
+		t.Error(err)
 	}
 }
 
@@ -35,16 +54,18 @@ func TestStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read: %v", err)
 	}
-	defer r.Close() // 确保关闭 io.ReadCloser
+	defer r.Close()
 
-	// 读取所有内容
 	b, err := io.ReadAll(r)
 	if err != nil {
 		t.Fatalf("failed to read all: %v", err)
 	}
 
-	// 比较数据
+	assert.True(t, s.Has(key), "Expected key to exist")
+
 	if !bytes.Equal(b, data) {
 		t.Errorf("expected data %q, got %q", data, b)
 	}
+
+	s.Delete(key)
 }
