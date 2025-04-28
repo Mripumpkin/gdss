@@ -60,7 +60,7 @@ type StoreOpts struct {
 	// Root is the folder name of the root, containing all the folders/files of the system.
 	Root              string
 	PathTransformFunc PathTransformFunc
-	NodeID            string // Unique identifier for the node
+	TraceID           string
 }
 
 // Store manages file storage operations.
@@ -112,22 +112,13 @@ func (s *Store) Delete(key string) error {
 	pathKey := s.PathTransformFunc(key)
 
 	defer func() {
-		logger := withStoreContext(s.NodeID, key, pathKey.FullPath())
+		logger := log.WithStoreContext(key, pathKey.FullPath(), s.TraceID)
 		logger.Infof("deleted [%s] form disk", pathKey.Filename)
 	}()
 
 	firstPathNfullPathWithRoot := filepath.Join(s.Root, pathKey.FullPath())
 
 	return os.RemoveAll(firstPathNfullPathWithRoot)
-}
-
-// withStoreContext creates a logger with store-specific fields.
-func withStoreContext(nodeID, key, path string) log.Logger {
-	return log.WithFields(log.Fields{
-		"node_id": nodeID,
-		"key":     key,
-		"path":    path,
-	})
 }
 
 func (s *Store) Read(key string) (io.ReadCloser, error) {
@@ -145,10 +136,14 @@ func (s *Store) readStream(key string) (io.Reader, error) {
 	return os.Open(fullPathWithRoot)
 }
 
+func (s *Store) Write(key string, r io.Reader) error {
+	return s.writeStream(key, r)
+}
+
 func (s *Store) writeStream(key string, r io.Reader) error {
 	pathKey := s.PathTransformFunc(key)
 	pathKeyWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.PathName)
-	logger := withStoreContext(s.NodeID, key, pathKey.FullPath())
+	logger := log.WithStoreContext(key, pathKey.FullPath(), s.TraceID)
 
 	if err := os.MkdirAll(pathKeyWithRoot, 0755); err != nil {
 		logger.Errorf("Failed to create directory: %v", err)

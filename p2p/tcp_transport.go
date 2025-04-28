@@ -1,9 +1,8 @@
 package p2p
 
 import (
-	"fmt"
+	"errors"
 	"net"
-	"time"
 
 	"github.com/jekki/gdss/log"
 )
@@ -42,7 +41,6 @@ type TCPTransportOpts struct {
 	ListenAddress string
 	HandshakeFunc HandshakeFunc
 	Decoder       Decoder
-	NodeID        string // Unique identifier for the node
 	OnPeer        func(Peer) error
 }
 
@@ -61,27 +59,33 @@ func NewTCPTransport(opts TCPTransportOpts) *TCPTransport {
 	}
 }
 
+func (t *TCPTransport) LocalAddr() string {
+	return t.ListenAddress
+}
+
 // Consume returns a read-only channel for incoming RPC messages.
 func (t *TCPTransport) Consume() <-chan RPC {
 	return t.rpcch
+}
+
+// close implements the Transport interface
+func (t *TCPTransport) Close() error {
+	return t.listener.Close()
 }
 
 // ListenAndAccept starts listening for incoming connections.
 func (t *TCPTransport) ListenAndAccept() error {
 	var err error
 	t.listener, err = net.Listen("tcp", t.ListenAddress)
+	logger := log.WithFields(log.Fields{
+		"address": t.ListenAddress,
+	})
 	if err != nil {
-		log.WithFields(log.Fields{
-			"node_id": t.NodeID,
-			"address": t.ListenAddress,
-		}).Errorf("TCP listen error: %v", err)
+		logger.Errorf("TCP listen error: %v", err)
 		return err
 	}
 
-	log.WithFields(log.Fields{
-		"node_id": t.NodeID,
-		"address": t.ListenAddress,
-	}).Infof("Listening for connections")
+	logger.Infof("Listening for connections")
 	go t.StartAcceptLoop()
 	return nil
 }
@@ -90,9 +94,11 @@ func (t *TCPTransport) ListenAndAccept() error {
 func (t *TCPTransport) StartAcceptLoop() {
 	for {
 		conn, err := t.listener.Accept()
+		if errors.Is(err, net.ErrClosed) {
+			return
+		}
 		if err != nil {
 			log.WithFields(log.Fields{
-				"node_id": t.NodeID,
 				"address": t.ListenAddress,
 			}).Errorf("TCP accept error: %v", err)
 			continue
@@ -101,25 +107,11 @@ func (t *TCPTransport) StartAcceptLoop() {
 	}
 }
 
-// withPeerContext creates a logger with peer-specific fields.
-func withPeerContext(nodeID, peerAddr, localAddr string, traceID ...string) log.Logger {
-	fields := log.Fields{
-		"node_id":    nodeID,
-		"peer":       peerAddr,
-		"local_addr": localAddr,
-	}
-	if len(traceID) > 0 && traceID[0] != "" {
-		fields["trace_id"] = traceID[0]
-	}
-	return log.WithFields(fields)
-}
-
 // handleConn processes a new incoming connection.
 func (t *TCPTransport) handleConn(conn net.Conn) {
 	var err error
 	peerAddr := conn.RemoteAddr().String()
-	traceID := generateTraceID()
-	logger := withPeerContext(t.NodeID, peerAddr, t.ListenAddress, traceID)
+	logger := log.WithPeerContext(peerAddr, t.ListenAddress)
 
 	defer func() {
 		if err != nil {
@@ -150,9 +142,4 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 		rpc.From = conn.RemoteAddr()
 		t.rpcch <- rpc
 	}
-}
-
-// generateTraceID generates a unique trace ID for distributed tracing (placeholder).
-func generateTraceID() string {
-	return "trace-" + fmt.Sprintf("%d", time.Now().UnixNano())
 }

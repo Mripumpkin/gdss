@@ -45,18 +45,17 @@ func NewFileServer(opts FileServerOpts) *FileServer {
 }
 
 func (s *FileServer) loop() {
+	logger := log.WithServerContext(s.Transport.LocalAddr(), s.TraceID)
+
 	defer func() {
-		log.Info("file server stopped due to user quit action")
+		logger.Info("file server stopped due to user quit action")
 		s.Transport.Close()
 	}()
 
 	for {
 		select {
 		case msg := <-s.Transport.Consume():
-			log.WithFields(map[string]interface{}{
-				"trace_id": s.TraceID,
-				"message":  msg,
-			}).Info("received message")
+			logger.Info(msg)
 		case <-s.quitch:
 			return
 		}
