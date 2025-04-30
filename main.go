@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/jekki/gdss/common"
 	"github.com/jekki/gdss/config"
@@ -16,6 +15,28 @@ import (
 func OnPeer(peer p2p.Peer) error {
 	peer.Close()
 	return nil
+}
+
+func makeServer(listenAddr, root string, nodes ...string) *server.FileServer {
+	tcpTransportOpts := p2p.TCPTransportOpts{
+		ListenAddress: listenAddr,
+		HandshakeFunc: p2p.NOPHandshakeFunc,
+		Decoder:       p2p.DefaultDecoder{},
+	}
+	tcptTransport := p2p.NewTCPTransport(tcpTransportOpts)
+
+	fileServerOpts := server.FileServerOpts{
+		StorageRoot:       root,
+		PathTransformFunc: store.CASPathTransformFunc,
+		Transport:         tcptTransport,
+		BootstrapNodes:    nodes,
+		TraceID:           pkg.GenerateTraceID(),
+	}
+
+	s := server.NewFileServer(fileServerOpts)
+	tcpTransportOpts.OnPeer = s.Onpeer
+
+	return s
 }
 
 func main() {
@@ -41,55 +62,17 @@ func main() {
 	port := conf.GetInt("server.port")
 	listenAddr := fmt.Sprintf("%s:%d", host, port)
 
-	tcpTransportOpts := p2p.TCPTransportOpts{
-		ListenAddress: listenAddr,
-		HandshakeFunc: p2p.NOPHandshakeFunc,
-		Decoder:       p2p.DefaultDecoder{},
-		// TODO: onPeer func
-	}
-	tcptTransport := p2p.NewTCPTransport(tcpTransportOpts)
-
-	fileServerOpts := server.FileServerOpts{
-		StorageRoot:       "gdss_test",
-		PathTransformFunc: store.CASPathTransformFunc,
-		Transport:         tcptTransport,
-		TraceID:           pkg.GenerateTraceID(),
-	}
-
-	s := server.NewFileServer(fileServerOpts)
-
-	go func() {
-		time.Sleep(time.Second * 5)
-		s.Stop()
-	}()
-
-	if err := s.Start(); err != nil {
-		log.Error(err)
-	}
-	// tcpOpts := p2p.TCPTransportOpts{
-	// 	ListenAddress: listenAddr,
-	// 	HandshakeFunc: p2p.NOPHandshakeFunc,
-	// 	Decoder:       &p2p.DefaultDecoder{},
-	// 	OnPeer:        OnPeer,
-	// 	TraceID:       pkg.GenerateTraceID(),
-	// }
-	// tr := p2p.NewTCPTransport(tcpOpts)
+	s := makeServer(listenAddr, "gdss_test", ":7790", ":7790")
 
 	// go func() {
-	// 	for msg := range tr.Consume() {
-	// 		log.WithFields(log.Fields{
-	// 			"from":    msg.From,
-	// 			"payload": string(msg.Payload),
-	// 		}).Infof("Received message")
-	// 		fmt.Printf("Received message: %s:%s\n", msg.From, msg.Payload)
-	// 	}
+	// 	time.Sleep(time.Second * 5)
+	// 	s.Stop()
 	// }()
 
-	// if err := tr.ListenAndAccept(); err != nil {
-	// 	log.WithFields(log.Fields{
-	// 		"address": listenAddr,
-	// 	}).Fatalf("Failed to start TCP transport: %v", err)
-	// }
-
-	// select {}
+	go func() {
+		if err := s.Start(); err != nil {
+			log.Error(err)
+		}
+	}()
+	select {}
 }

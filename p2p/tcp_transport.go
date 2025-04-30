@@ -31,6 +31,12 @@ func (p *TCPPeer) IsOutbound() bool {
 	return p.outbound
 }
 
+// RemoteAddr implements the Peer interface and will return the
+// remote address of the its underlying connection.
+func (p *TCPPeer) RemoteAddr() net.Addr {
+	return p.conn.RemoteAddr()
+}
+
 // Close closes the connection.
 func (p *TCPPeer) Close() error {
 	return p.conn.Close()
@@ -68,9 +74,19 @@ func (t *TCPTransport) Consume() <-chan RPC {
 	return t.rpcch
 }
 
-// close implements the Transport interface
+// close implements the Transport interface.
 func (t *TCPTransport) Close() error {
 	return t.listener.Close()
+}
+
+// Dial implements the Transport interface.
+func (t *TCPTransport) Dial(addr string) error {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return err
+	}
+	go t.handleConn(conn, true)
+	return nil
 }
 
 // ListenAndAccept starts listening for incoming connections.
@@ -103,12 +119,12 @@ func (t *TCPTransport) StartAcceptLoop() {
 			}).Errorf("TCP accept error: %v", err)
 			continue
 		}
-		go t.handleConn(conn)
+		go t.handleConn(conn, false)
 	}
 }
 
 // handleConn processes a new incoming connection.
-func (t *TCPTransport) handleConn(conn net.Conn) {
+func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 	var err error
 	peerAddr := conn.RemoteAddr().String()
 	logger := log.WithPeerContext(peerAddr, t.ListenAddress)
