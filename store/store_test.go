@@ -3,10 +3,10 @@ package store
 import (
 	"bytes"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/jekki/gdss/gcrypto"
 )
 
 func TestPathTransformFunc(t *testing.T) {
@@ -31,11 +31,12 @@ func TestStoreDeleteKey(t *testing.T) {
 
 	key := "store_dir"
 	data := []byte("test data")
-	if err := s.writeStream(key, bytes.NewBuffer(data)); err != nil {
-		t.Fatalf("failed to write stream: %v", err)
+	id := gcrypto.GenerateID()
+	if _, err := s.writeStream(id, key, bytes.NewReader(data)); err != nil {
+		t.Error(err)
 	}
 
-	if err := s.Delete(key); err != nil {
+	if err := s.Delete(id, key); err != nil {
 		t.Error(err)
 	}
 }
@@ -43,36 +44,35 @@ func TestStoreDeleteKey(t *testing.T) {
 func TestStore(t *testing.T) {
 	s := newStore()
 	defer teardown(t, s)
+	id := gcrypto.GenerateID()
 
 	for i := 0; i < 5000; i++ {
 		key := fmt.Sprintf("food_%d", i)
 
 		data := []byte("test data")
-		if err := s.writeStream(key, bytes.NewBuffer(data)); err != nil {
-			t.Fatalf("failed to write stream: %v", err)
-		}
-		r, err := s.Read(key)
-		if err != nil {
-			t.Fatalf("failed to read: %v", err)
-		}
-
-		b, err := io.ReadAll(r)
-		if err != nil {
-			t.Fatalf("failed to read all: %v", err)
-		}
-		r.Close()
-
-		assert.True(t, s.Has(key), "Expected key to exist")
-
-		if !bytes.Equal(b, data) {
-			t.Errorf("expected data %q, got %q", data, b)
-		}
-
-		if err := s.Delete(key); err != nil {
+		if _, err := s.writeStream(id, key, bytes.NewReader(data)); err != nil {
 			t.Error(err)
 		}
-		if ok := s.Has(key); ok {
-			t.Errorf("expected to not have key %s", key)
+		if ok := s.Has(id, key); !ok {
+			t.Errorf("expected to have key %s", key)
+		}
+
+		_, r, err := s.Read(id, key)
+		if err != nil {
+			t.Error(err)
+		}
+
+		b, _ := ioutil.ReadAll(r)
+		if string(b) != string(data) {
+			t.Errorf("want %s have %s", data, b)
+		}
+
+		if err := s.Delete(id, key); err != nil {
+			t.Error(err)
+		}
+
+		if ok := s.Has(id, key); ok {
+			t.Errorf("expected to NOT have key %s", key)
 		}
 	}
 }

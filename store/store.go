@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
+
 	"strings"
 
+	"github.com/jekki/gdss/gcrypto"
 	"github.com/jekki/gdss/log"
 )
 
@@ -60,7 +61,7 @@ type StoreOpts struct {
 	// Root is the folder name of the root, containing all the folders/files of the system.
 	Root              string
 	PathTransformFunc PathTransformFunc
-	TraceID           string
+	ID                string
 }
 
 // Store manages file storage operations.
@@ -94,10 +95,9 @@ func (s *Store) Clear() error {
 	return os.RemoveAll(s.Root)
 }
 
-func (s *Store) Has(key string) bool {
+func (s *Store) Has(id string, key string) bool {
 	pathKey := s.PathTransformFunc(key)
-
-	fullPathWithRoot := filepath.Join(s.Root, pathKey.FullPath())
+	fullPathWithRoot := fmt.Sprintf("%s/%s/%s", s.Root, id, pathKey.FullPath())
 	_, err := os.Stat(fullPathWithRoot)
 	if err == nil {
 		return true
@@ -108,64 +108,68 @@ func (s *Store) Has(key string) bool {
 	return false
 }
 
-func (s *Store) Delete(key string) error {
+func (s *Store) Delete(id string, key string) error {
 	pathKey := s.PathTransformFunc(key)
 
 	defer func() {
-		logger := log.WithStoreContext(key, pathKey.FullPath(), s.TraceID)
+		logger := log.WithStoreContext(key, pathKey.FullPath(), s.ID)
 		logger.Infof("deleted [%s] form disk", pathKey.Filename)
 	}()
 
-	firstPathNfullPathWithRoot := filepath.Join(s.Root, pathKey.FullPath())
+	firstPathNameWithRoot := fmt.Sprintf("%s/%s/%s", s.Root, id, pathKey.FirstPathName())
 
-	return os.RemoveAll(firstPathNfullPathWithRoot)
+	return os.RemoveAll(firstPathNameWithRoot)
 }
 
-func (s *Store) Read(key string) (io.ReadCloser, error) {
-	f, err := s.readStream(key)
+func (s *Store) Read(id string, key string) (int64, io.Reader, error) {
+	return s.readStream(id, key)
+}
+
+func (s *Store) readStream(id string, key string) (int64, io.ReadCloser, error) {
+	pathKey := s.PathTransformFunc(key)
+	fullPathWithRoot := fmt.Sprintf("%s/%s/%s", s.Root, id, pathKey.FullPath())
+	file, err := os.Open(fullPathWithRoot)
 	if err != nil {
+		return 0, nil, err
+	}
+
+	fi, err := file.Stat()
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return fi.Size(), file, nil
+}
+
+func (s *Store) Write(id string, key string, r io.Reader) (int64, error) {
+	return s.writeStream(id, key, r)
+}
+
+func (s *Store) WriteDecrypt(encKey []byte, id string, key string, r io.Reader) (int64, error) {
+	f, err := s.openFileForWriting(id, key)
+	if err != nil {
+		return 0, err
+	}
+	n, err := gcrypto.CopyDecrypt(encKey, r, f)
+	return int64(n), err
+}
+
+func (s *Store) openFileForWriting(id string, key string) (*os.File, error) {
+	pathKey := s.PathTransformFunc(key)
+	pathNameWithRoot := fmt.Sprintf("%s/%s/%s", s.Root, id, pathKey.PathName)
+	if err := os.MkdirAll(pathNameWithRoot, os.ModePerm); err != nil {
 		return nil, err
 	}
 
-	return f.(io.ReadCloser), nil
+	fullPathWithRoot := fmt.Sprintf("%s/%s/%s", s.Root, id, pathKey.FullPath())
+
+	return os.Create(fullPathWithRoot)
 }
 
-func (s *Store) readStream(key string) (io.Reader, error) {
-	pathKey := s.PathTransformFunc(key)
-	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
-	return os.Open(fullPathWithRoot)
-}
-
-func (s *Store) Write(key string, r io.Reader) error {
-	return s.writeStream(key, r)
-}
-
-func (s *Store) writeStream(key string, r io.Reader) error {
-	pathKey := s.PathTransformFunc(key)
-	pathKeyWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.PathName)
-	logger := log.WithStoreContext(key, pathKey.FullPath(), s.TraceID)
-
-	if err := os.MkdirAll(pathKeyWithRoot, 0755); err != nil {
-		logger.Errorf("Failed to create directory: %v", err)
-		return err
-	}
-
-	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FullPath())
-
-	f, err := os.Create(fullPathWithRoot)
+func (s *Store) writeStream(id string, key string, r io.Reader) (int64, error) {
+	f, err := s.openFileForWriting(id, key)
 	if err != nil {
-		logger.Errorf("Failed to create file: %v", err)
-		return err
+		return 0, err
 	}
-	defer f.Close()
-
-	n, err := io.Copy(f, r)
-	if err != nil {
-		logger.Errorf("Failed to write to file: %v", err)
-		_ = os.Remove(pathKey.FullPath())
-		return err
-	}
-
-	logger.Infof("Wrote %d bytes to disk", n)
-	return nil
+	return io.Copy(f, r)
 }
