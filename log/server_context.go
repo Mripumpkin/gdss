@@ -1,12 +1,12 @@
 package log
 
 // withStoreContext creates a logger with store-specific fields.
-func WithServerContext(localAddr string, traceID ...string) Logger {
+func WithServerContext(localAddr string, id ...string) Logger {
 	fields := Fields{
-		"address": localAddr,
+		"listenaddr": localAddr,
 	}
-	if len(traceID) > 0 && traceID[0] != "" {
-		fields["trace_id"] = traceID[0]
+	if len(id) > 0 && id[0] != "" {
+		fields["id"] = id[0]
 	}
 	return WithFields(fields)
 }
