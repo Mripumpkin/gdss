@@ -1,4 +1,5 @@
 APP := gdss
+TEST := gdss_test
 BINARY_NAME := $(APP)
 BIN_DIR := bin
 GO_FILES := $(wildcard *.go)
@@ -81,6 +82,8 @@ clean:
 	@echo "Cleaning build artifacts..."
 	@go clean
 	@rm -rf $(BIN_DIR) || true
+	@rm -rf $(TEST) || true
+	@rm -rf $(APP) || true
 
 rm: clean
 	@echo "Removing Docker image $(APP):$(VERSION)..."

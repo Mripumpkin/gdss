@@ -1,5 +1,7 @@
 gdss
+*gdss_test*
 *.back
 *.backup
 core.[0-9]*
 *store_dir*
+*debug*
