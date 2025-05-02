@@ -11,6 +11,7 @@ log_max_size_mb = 100
 log_max_backups = 3
 log_max_age_days = 28
 log_compress = true
+root_test = "gdss_test"
 
 [node]
 tcp = "tcp"
