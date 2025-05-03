@@ -83,7 +83,6 @@ func (s *FileServer) broadcast(msg *Message) error {
 }
 
 func (s *FileServer) Get(key string) (io.Reader, error) {
-
 	logger := log.WithServerContext(s.Transport.Addr(), s.ID)
 
 	if s.S.Has(s.ID, key) {
@@ -103,24 +102,49 @@ func (s *FileServer) Get(key string) (io.Reader, error) {
 		return nil, err
 	}
 
-	time.Sleep(time.Millisecond * 500)
+	timeout := time.After(time.Second * 5)
+	responseCh := make(chan io.Reader)
+	errCh := make(chan error)
 
-	for _, peer := range s.peers {
-		var fileSize int64
-		binary.Read(peer, binary.LittleEndian, &fileSize)
+	go func() {
+		var fileReader io.Reader
 
-		n, err := s.S.WriteDecrypt(s.EncKey, s.ID, key, io.LimitReader(peer, fileSize))
-		if err != nil {
-			return nil, err
+		for _, peer := range s.peers {
+			var fileSize int64
+			if err := binary.Read(peer, binary.LittleEndian, &fileSize); err != nil {
+				errCh <- err
+				return
+			}
+
+			reader := io.LimitReader(peer, fileSize)
+
+			n, err := s.S.WriteDecrypt(s.EncKey, s.ID, key, reader)
+			if err != nil {
+				errCh <- err
+				return
+			}
+
+			logger.Infof("received (%d) bytes over the network from (%s)", n, peer.RemoteAddr())
+
+			peer.CloseStream()
 		}
 
-		logger.Infof("received (%d) bytes over the network from (%s)", n, peer.RemoteAddr())
+		_, fileReader, err := s.S.Read(s.ID, key)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		responseCh <- fileReader
+	}()
 
-		peer.CloseStream()
+	select {
+	case r := <-responseCh:
+		return r, nil
+	case err := <-errCh:
+		return nil, err
+	case <-timeout:
+		return nil, fmt.Errorf("timeout while waiting for file from peers")
 	}
-
-	_, r, err := s.S.Read(s.ID, key)
-	return r, err
 }
 
 func (s *FileServer) Store(key string, r io.Reader) error {
@@ -147,20 +171,39 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 	if err := s.broadcast(&msg); err != nil {
 		return err
 	}
-	time.Sleep(time.Millisecond * 5)
 
-	peers := []io.Writer{}
-	for _, peer := range s.peers {
-		peers = append(peers, peer)
-	}
-	mw := io.MultiWriter(peers...)
-	mw.Write([]byte{p2p.IncomingStream})
-	n, err := gcrypto.CopyEncrypt(s.EncKey, fileBuffer, mw)
-	if err != nil {
-		return err
-	}
+	timeout := time.After(time.Second * 5)
+	responseCh := make(chan error)
 
-	logger.Infof("received and written (%d) bytes to disk\n", n)
+	go func() {
+		time.Sleep(time.Millisecond * 500)
+
+		peers := []io.Writer{}
+		for _, peer := range s.peers {
+			peers = append(peers, peer)
+		}
+
+		mw := io.MultiWriter(peers...)
+		mw.Write([]byte{p2p.IncomingStream})
+
+		n, err := gcrypto.CopyEncrypt(s.EncKey, fileBuffer, mw)
+		if err != nil {
+			responseCh <- err
+			return
+		}
+
+		logger.Infof("received and written (%d) bytes to disk\n", n)
+		responseCh <- nil
+	}()
+
+	select {
+	case err := <-responseCh:
+		if err != nil {
+			return fmt.Errorf("failed to send file to peers: %w", err)
+		}
+	case <-timeout:
+		return fmt.Errorf("timeout while waiting for file transfer to peers")
+	}
 
 	return nil
 }
